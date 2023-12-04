@@ -26,12 +26,15 @@ def get_one_product(url):
         price_including_tax = table.find('th', string='Price (incl. tax)').find_next_sibling('td')
         price_excluding_tax = table.find('th', string='Price (excl. tax)').find_next_sibling('td')
         number_available = table.find('th', string='Availability').find_next_sibling('td')
+        # Si les infos sont disponibles, alors on les affecte à des variables
         if upc and price_including_tax and price_excluding_tax and number_available:
             upc = upc.text
+            # On enlève le caractère 'Â' du priux en livres par ''
             price_including_tax = price_including_tax.text.replace('Â', '')
             price_excluding_tax = price_excluding_tax.text.replace('Â', '')
             number_available = number_available.text
 
+            # Extraire la description si elle est bien trouvée
             product_description = soup.find('meta', attrs={'name': 'description'})
             if product_description:
                 product_description = product_description['content']
@@ -39,7 +42,7 @@ def get_one_product(url):
             # Extraire la catégorie
             category = soup.find('ul', class_='breadcrumb').find_all('li')[-2].text.strip()
 
-            # Extraire la note de l'évaluation
+            # Extraire la note de l'évaluation via le nom de la class
             star_rating_element = soup.find('p', class_=re.compile('^star-rating'))
             classes = star_rating_element.get('class', [])
             rating = 0
@@ -57,7 +60,7 @@ def get_one_product(url):
             # Extraire l'URL de l'image
             image_url = soup.find('div', class_='item active').find('img')['src']
 
-            # Données à écrire dans le fichier CSV
+            # Données à écrire dans le fichier CSV avec retours à la ligne entre chaque info
             data = [
                 f"\nproduct_page_url : {product_page_url}",
                 f"\nuniversal_product_code (upc) : {upc}",
@@ -76,60 +79,62 @@ def get_one_product(url):
 def get_from_category(url, category_name):
     # Effectuer la requête HTTP
     response = requests.get(url)
+
     # Analyser le contenu HTML avec BeautifulSoup
     soup = BeautifulSoup(response.text, 'html.parser')
 
     # Trouver tous les liens des produits sur la page de la catégorie
     product_links = soup.select('h3 a')
-    counter = 0
 
-    # Liste pour stocker les données de tous les livres de la catégorie
+    # Liste de tous les livres de la même catégorie
     category_books_data = []
 
     # Itérer sur chaque lien de produit et extraire les informations
     for link in product_links:
         product_url = link['href']
-        counter += 1
-
         # Diviser l'url pour récupérer seulement le nom du fichier
         product_path = product_url.rsplit('/', 2)[-2]
-
         # Ajouter au nom du fichier le chemin le précédant
         product_final_url = f"https://books.toscrape.com/catalogue/{product_path}"
-
         # Appel de la fonction get_one_product        
         book_data = get_one_product(product_final_url)
-
         # Ajouter les données du livre à la liste
         category_books_data.append(book_data)
 
-        # Afficher le lien du produit en console pour vérification
-        print(f"Counter : {counter}")
+    # Créer le dossier csv s'il n'existe pas
+    csv_folder = 'csv'
+    os.makedirs(csv_folder, exist_ok=True)
 
-    # Nom du fichier CSV pour la catégorie
-    csv_file = f'{category_name}_books.csv'
+    # Nom du fichier CSV pour la catégorie, enregistré dans le dossier csv
+    csv_file = os.path.join(csv_folder, f'{category_name}_books.csv')
 
     # Écrire les données dans le fichier CSV
     with open(csv_file, 'w', newline='', encoding='utf-8-sig') as file:
         writer = csv.writer(file)
+        # Écrire les en-têtes de colonnes (ajustez selon vos données)
+        writer.writerow(['Product URL', 'UPC', 'Title', 'Price incl. Tax', 'Price excl. Tax', 'Availability', 'Description', 'Category', 'Rating', 'Image URL'])
+        # Écrire les données des livres
         writer.writerows(category_books_data)
 
     print(f'Données enregistrées dans {csv_file}')
 
     return csv_file
+
 def sanitize_filename(filename):
+    # Définit des caractères valides
     valid_chars = f"-_.() {string.ascii_letters}{string.digits}"
+    # remplace les caractères spéciaux par un _
     return ''.join(c if c in valid_chars else '_' for c in filename)
 
 def download_image(url, category_name, title, base_url='https://books.toscrape.com'):
-    # Assurez-vous que le dossier pour la catégorie existe
+    # Le dossier doit d'abord avoir été créé
     category_folder = f'images/{category_name}'
     os.makedirs(category_folder, exist_ok=True)
 
-    # Construire l'URL absolu
+    # Modifier l'url pour qu'il correspnd aux images
     absolute_url = f'{base_url}/{url}'
 
-    # Extraire le nom de fichier à partir du titre
+    # Extraire le nom de fichier à partir du titre en le transformant pour éviter les caractères spéciaux
     image_name = f'{sanitize_filename(title)}.jpg'
 
     # Chemin complet du fichier image local
@@ -141,8 +146,6 @@ def download_image(url, category_name, title, base_url='https://books.toscrape.c
         file.write(response.content)
 
     print(f'Image enregistrée localement : {local_path}')
-
-
 
 def get_all_categories(url):
     # Effectuer la requête HTTP
