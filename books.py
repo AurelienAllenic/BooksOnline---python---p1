@@ -77,48 +77,27 @@ def get_one_product(url):
             return data
 
 def get_from_category(url, category_name):
-    # Effectuer la requête HTTP
     response = requests.get(url)
-
-    # Analyser le contenu HTML avec BeautifulSoup
     soup = BeautifulSoup(response.text, 'html.parser')
-
-    # Trouver tous les liens des produits sur la page de la catégorie
     product_links = soup.select('h3 a')
-
-    # Liste de tous les livres de la même catégorie
     category_books_data = []
 
-    # Itérer sur chaque lien de produit et extraire les informations
     for link in product_links:
         product_url = link['href']
-        # Diviser l'url pour récupérer seulement le nom du fichier
         product_path = product_url.rsplit('/', 2)[-2]
-        # Ajouter au nom du fichier le chemin le précédant
         product_final_url = f"https://books.toscrape.com/catalogue/{product_path}"
-        # Appel de la fonction get_one_product        
         book_data = get_one_product(product_final_url)
-        # Ajouter les données du livre à la liste
         category_books_data.append(book_data)
 
-    # Créer le dossier csv s'il n'existe pas
-    csv_folder = 'csv'
-    os.makedirs(csv_folder, exist_ok=True)
+    pager = soup.find('ul', class_='pager')
+    if pager:
+        next_link = pager.find('li', class_='next')
+        if next_link:
+            next_page = next_link.find('a')['href']
+            next_page_url = url.rsplit('/', 1)[0] + '/' + next_page
+            category_books_data += get_from_category(next_page_url, category_name)
 
-    # Nom du fichier CSV pour la catégorie, enregistré dans le dossier csv
-    csv_file = os.path.join(csv_folder, f'{category_name}_books.csv')
-
-    # Écrire les données dans le fichier CSV
-    with open(csv_file, 'w', newline='', encoding='utf-8-sig') as file:
-        writer = csv.writer(file)
-        # Écrire les en-têtes de colonnes (ajustez selon vos données)
-        writer.writerow(['Product URL', 'UPC', 'Title', 'Price incl. Tax', 'Price excl. Tax', 'Availability', 'Description', 'Category', 'Rating', 'Image URL'])
-        # Écrire les données des livres
-        writer.writerows(category_books_data)
-
-    print(f'Données enregistrées dans {csv_file}')
-
-    return csv_file
+    return category_books_data
 
 def sanitize_filename(filename):
     # Définit des caractères valides
@@ -160,27 +139,35 @@ def get_all_categories(url):
     # Trouver tous les liens à l'intérieur de la div des catégories
     category_links = categories_div.find_all('a')
 
-    # Récupérer les URLs des catégories
-    category_urls = [url.rsplit('/', 1)[0] + '/' + link['href'] for link in category_links]
+    # Récupérer les URLs des catégories en excluant books
+    category_urls = []
+    for link in category_links:
+        print(link['href'])
+        if link['href'] != 'catalogue/category/books_1/index.html':
+            print(f"{link['href']},  lien trouvé")
+            category_url = url.rsplit('/', 1)[0] + '/' + link['href']
+            category_urls.append(category_url)
 
     return category_urls
 
 # URL de base
 base_url = 'https://books.toscrape.com/index.html'
-
-# Appeler la fonction avec l'URL de base
 all_categories = get_all_categories(base_url)
 
-# Itérer sur chaque catégorie et appeler la fonction get_from_category
 for category_url in all_categories:
     category_name = category_url.rsplit('/', 2)[-2]
-    csv_file = get_from_category(category_url, category_name)
+    category_books_data = get_from_category(category_url, category_name)
 
-    # Itérer sur chaque livre de la catégorie et télécharger l'image
-    with open(csv_file, 'r', newline='', encoding='utf-8-sig') as file:
-        reader = csv.reader(file)
-        next(reader)  # Ignorer l'en-tête
-        for row in reader:
-            image_url = row[-1].split(':')[-1].strip()
-            title = row[2].split(':')[-1].strip()
-            download_image(image_url, category_name, title)
+    csv_folder = 'csv'
+    os.makedirs(csv_folder, exist_ok=True)
+    csv_file = os.path.join(csv_folder, f'{category_name}_books.csv')
+
+    with open(csv_file, 'w', newline='', encoding='utf-8-sig') as file:
+        writer = csv.writer(file)
+        writer.writerow(['Product URL', 'UPC', 'Title', 'Price incl. Tax', 'Price excl. Tax', 'Availability', 'Description', 'Category', 'Rating', 'Image URL'])
+        writer.writerows(category_books_data)
+
+    for data in category_books_data:
+        image_url = data[-1].split(':')[-1].strip()
+        title = data[2].split(':')[-1].strip()
+        download_image(image_url, category_name, title)
